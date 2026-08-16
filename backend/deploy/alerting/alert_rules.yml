@@ -1,0 +1,117 @@
+# Prometheus alerting rules (2026-08-15)
+# 로드 방법:
+#   prometheus.yml 에 다음 추가
+#     rule_files: ["/etc/prometheus/alert_rules.yml"]
+#   Alertmanager 라우팅은 alertmanager.yml 참조
+
+groups:
+  - name: quantpilot.slos
+    interval: 30s
+    rules:
+      # ── 1) 5xx 에러율 > 5% (5분 평균) ─────────────────────────────────────
+      - alert: QuantPilotHigh5xxRate
+        expr: |
+          100 *
+          sum(rate(qp_http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(qp_http_requests_total[5m]))
+          > 5
+        for: 5m
+        labels:
+          severity: critical
+          service: quantpilot-proxy
+        annotations:
+          summary: "5xx error rate > 5% for 5 minutes"
+          description: |
+            QuantPilot 프록시의 5xx 오류율이 5분 연속 5%를 초과했습니다.
+            현재값: {{ $value | printf "%.2f" }}%.
+            런북: https://runbooks.quantpilot.io/5xx-spike
+          dashboard: "http://grafana.internal/d/qp-errors"
+
+      - alert: QuantPilotElevated5xxRate
+        expr: |
+          100 *
+          sum(rate(qp_http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(qp_http_requests_total[5m]))
+          > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: quantpilot-proxy
+        annotations:
+          summary: "5xx error rate > 1% for 10 minutes"
+          description: "완화된 임계값 초과. 현재: {{ $value | printf \"%.2f\" }}%"
+
+      # ── 2) 응답 지연 p95 > 2초 (5분 평균) ──────────────────────────────────
+      - alert: QuantPilotLatencyP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(qp_http_request_duration_seconds_bucket[5m]))
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: quantpilot-proxy
+        annotations:
+          summary: "p95 latency > 2s for 5 minutes"
+          description: |
+            전체 API의 p95 지연이 5분 연속 2초를 넘었습니다.
+            현재값: {{ $value | printf "%.2fs" }}.
+            AI /screener·/strategy 호출은 백엔드 Gemini 호출을 포함할 수 있음 — 재시도 로그 확인.
+          dashboard: "http://grafana.internal/d/qp-latency"
+
+      - alert: QuantPilotLatencyP95Severe
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(qp_http_request_duration_seconds_bucket[5m]))
+          ) > 5
+        for: 3m
+        labels:
+          severity: critical
+          service: quantpilot-proxy
+        annotations:
+          summary: "p95 latency > 5s for 3 minutes"
+          description: "심각한 지연. 즉시 조치. 현재: {{ $value | printf \"%.2fs\" }}"
+
+      # ── 3) AI schema_fail 급증 (10분간 20건 초과) ─────────────────────────
+      - alert: QuantPilotAISchemaFailSpike
+        expr: |
+          sum(increase(qp_ai_calls_total{outcome="schema_fail"}[10m])) > 20
+        for: 1m
+        labels:
+          severity: warning
+          service: quantpilot-proxy
+          component: ai
+        annotations:
+          summary: "AI schema_fail spike (>20 in 10m)"
+          description: |
+            /ai/* JSON 스키마 검증 실패가 10분간 {{ $value | printf "%.0f" }}건 발생.
+            원인 후보: (a) Gemini 응답 포맷 변화, (b) 시스템 프롬프트 리그레션, (c) 신규 케이스 유형.
+            PoC 하네스 재실행: python3 poc/harness.py --all --mock
+
+      - alert: QuantPilotAISchemaFailBurst
+        expr: |
+          sum(increase(qp_ai_calls_total{outcome="schema_fail"}[5m])) > 50
+        for: 30s
+        labels:
+          severity: critical
+          service: quantpilot-proxy
+          component: ai
+        annotations:
+          summary: "AI schema_fail burst (>50 in 5m)"
+          description: "AI 응답 스키마 실패 폭증. 프롬프트 롤백 검토 필요."
+
+  - name: quantpilot.saturation
+    interval: 30s
+    rules:
+      # ── 서브 SLO: in-flight 요청 폭증 (백프레셔 신호) ────────────────────
+      - alert: QuantPilotInFlightHigh
+        expr: qp_http_in_flight > 100
+        for: 2m
+        labels:
+          severity: warning
+          service: quantpilot-proxy
+        annotations:
+          summary: "In-flight requests > 100 for 2m"
+          description: "동시 처리 요청 수 급증. HPA/워커 수 확인."

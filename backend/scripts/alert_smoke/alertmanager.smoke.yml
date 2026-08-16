@@ -1,0 +1,45 @@
+# Alertmanager 설정 — 스모크 전용 (mock Slack 3개 채널)
+#
+# 실 운영 alertmanager.yml과 동일한 라우팅 트리를 유지하되,
+# api_url_file 대신 mock-slack HTTP 엔드포인트를 사용한다.
+global:
+  resolve_timeout: 1m
+
+route:
+  receiver: default
+  group_by: [alertname, service]
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 5m
+  routes:
+    - matchers: [severity="critical"]
+      receiver: slack-critical
+      continue: true
+    - matchers: [severity="warning"]
+      receiver: slack-warning
+    - matchers: [component="ai"]
+      receiver: slack-ai
+      continue: true
+
+receivers:
+  - name: default
+    webhook_configs:
+      - url: http://mock-slack:5001/default
+        send_resolved: true
+  - name: slack-critical
+    webhook_configs:
+      - url: http://mock-slack:5001/critical
+        send_resolved: true
+  - name: slack-warning
+    webhook_configs:
+      - url: http://mock-slack:5001/default
+        send_resolved: true
+  - name: slack-ai
+    webhook_configs:
+      - url: http://mock-slack:5001/ai
+        send_resolved: true
+
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [alertname, service]

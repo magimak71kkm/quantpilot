@@ -1,0 +1,5 @@
+{"input":"코스닥 중소형주 중에 최근 3개월 상승률 20% 넘고 PER 30 미만인 종목 30개","expect_keys":["market","filters"]}
+{"input":"미국 배당주 시총 100억달러 이상","expect_keys":["market","filters"]}
+{"input":"KOSPI 대형주 PER 10 이하, 배당 3% 이상","expect_keys":["market","filters"]}
+{"input":"RSI 70 위로 뚫린 종목만","expect_keys":["market","filters"]}
+{"input":"테슬라 주가 알려줘","expect_error":true}

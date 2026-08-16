@@ -1,0 +1,108 @@
+# Thanos 확장 스택 — Sidecar + Store + Query + Compactor + MinIO(dev)
+#
+# 실행:
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.observability.yml \
+#     -f thanos/docker-compose.thanos.yml up -d
+#
+# 접속:
+#   Thanos Query   http://localhost:10902
+#   MinIO Console  http://localhost:9001  (minioadmin / minioadmin)
+version: "3.9"
+
+services:
+  minio:
+    image: minio/minio:RELEASE.2026-06-01T00-00-00Z
+    container_name: qp-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: minio/mc:RELEASE.2026-06-01T00-00-00Z
+    container_name: qp-minio-init
+    depends_on: [minio]
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      mc mb -p local/qp-tsdb;
+      mc anonymous set none local/qp-tsdb;
+      "
+    restart: "no"
+
+  thanos-sidecar:
+    image: quay.io/thanos/thanos:v0.36.1
+    container_name: qp-thanos-sidecar
+    depends_on: [prometheus, minio-init]
+    environment:
+      THANOS_S3_ACCESS_KEY: minioadmin
+      THANOS_S3_SECRET_KEY: minioadmin
+    command:
+      - "sidecar"
+      - "--tsdb.path=/prometheus"
+      - "--prometheus.url=http://prometheus:9090"
+      - "--objstore.config-file=/etc/thanos/objstore.yml"
+      - "--http-address=0.0.0.0:10902"
+      - "--grpc-address=0.0.0.0:10901"
+    volumes:
+      - prom-data:/prometheus
+      - ./thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+
+  thanos-store:
+    image: quay.io/thanos/thanos:v0.36.1
+    container_name: qp-thanos-store
+    depends_on: [minio-init]
+    environment:
+      THANOS_S3_ACCESS_KEY: minioadmin
+      THANOS_S3_SECRET_KEY: minioadmin
+    command:
+      - "store"
+      - "--data-dir=/data"
+      - "--objstore.config-file=/etc/thanos/objstore.yml"
+      - "--grpc-address=0.0.0.0:10901"
+      - "--http-address=0.0.0.0:10902"
+    volumes:
+      - ./thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+      - thanos-store-data:/data
+
+  thanos-query:
+    image: quay.io/thanos/thanos:v0.36.1
+    container_name: qp-thanos-query
+    depends_on: [thanos-sidecar, thanos-store]
+    command:
+      - "query"
+      - "--http-address=0.0.0.0:10902"
+      - "--grpc-address=0.0.0.0:10901"
+      - "--query.replica-label=replica"
+      - "--store=thanos-sidecar:10901"
+      - "--store=thanos-store:10901"
+    ports: ["10902:10902"]
+
+  thanos-compactor:
+    image: quay.io/thanos/thanos:v0.36.1
+    container_name: qp-thanos-compactor
+    depends_on: [minio-init]
+    environment:
+      THANOS_S3_ACCESS_KEY: minioadmin
+      THANOS_S3_SECRET_KEY: minioadmin
+    command:
+      - "compact"
+      - "--data-dir=/data"
+      - "--objstore.config-file=/etc/thanos/objstore.yml"
+      - "--wait"
+      - "--retention.resolution-raw=30d"
+      - "--retention.resolution-5m=180d"
+      - "--retention.resolution-1h=2y"
+    volumes:
+      - ./thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+      - thanos-compactor-data:/data
+
+volumes:
+  minio-data:
+  thanos-store-data:
+  thanos-compactor-data:

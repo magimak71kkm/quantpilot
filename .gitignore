@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+backend/.venv/
+backend/*.db
+backend/quantpilot.db
+node_modules/
+playwright-report/
+test-results/
+.DS_Store
+.omx/state/session.json.stale-dead-backup
+.omx/

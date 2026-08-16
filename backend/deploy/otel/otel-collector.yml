@@ -1,0 +1,35 @@
+# OpenTelemetry Collector (contrib) — Jaeger + Prometheus 이중 파이프라인
+# 실행:
+#   docker run -p 4317:4317 -p 4318:4318 -v ./otel-collector.yml:/etc/otelcol-contrib/config.yaml \
+#     otel/opentelemetry-collector-contrib:0.107.0
+
+receivers:
+  otlp:
+    protocols:
+      grpc: {endpoint: 0.0.0.0:4317}
+      http: {endpoint: 0.0.0.0:4318}
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls: {insecure: true}
+  debug:
+    verbosity: basic
+
+service:
+  telemetry:
+    logs: {level: info}
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, debug]

@@ -1,0 +1,62 @@
+# Prometheus + Alertmanager + Grafana 확장 스택 (자동 프로비저닝)
+#
+# 실행:
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.observability.yml up -d
+#
+# 접속:
+#   Grafana        http://localhost:3000  (admin / admin, 최초 로그인 시 변경)
+#   Prometheus     http://localhost:9090
+#   Alertmanager   http://localhost:9093
+
+version: "3.9"
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: qp-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./grafana/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerting/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prom-data:/prometheus
+    ports: ["9090:9090"]
+    depends_on: [alertmanager]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: qp-alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ./alerting/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - am-data:/alertmanager
+    ports: ["9093:9093"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: qp-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboard_latency.json:/var/lib/grafana/dashboards/latency.json:ro
+      - ./grafana/dashboard_rate.json:/var/lib/grafana/dashboards/rate.json:ro
+      - ./grafana/dashboard_errors.json:/var/lib/grafana/dashboards/errors.json:ro
+      - ./grafana/dashboard_slo.json:/var/lib/grafana/dashboards/slo.json:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  prom-data:
+  am-data:
+  grafana-data:

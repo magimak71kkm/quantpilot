@@ -1,0 +1,84 @@
+# Thanos Ruler에서 평가되는 recording + alerting rule
+# - recording rule은 자주 계산되는 SLI를 사전에 집계해 대시보드/알림 지연을 줄인다
+# - alerting rule은 Alertmanager HA 쌍으로 전송된다
+
+groups:
+  - name: quantpilot.recording
+    interval: 30s
+    rules:
+      # 5xx 비율 (5m 평균)
+      - record: qp:http_5xx_ratio:5m
+        expr: |
+          sum(rate(qp_http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(qp_http_requests_total[5m]))
+
+      # 4xx+5xx 비율 (5m 평균)
+      - record: qp:http_error_ratio:5m
+        expr: |
+          sum(rate(qp_http_requests_total{status=~"[45].."}[5m]))
+          /
+          sum(rate(qp_http_requests_total[5m]))
+
+      # p95 latency
+      - record: qp:http_latency_p95:5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(qp_http_request_duration_seconds_bucket[5m]))
+          )
+
+      # p99 latency
+      - record: qp:http_latency_p99:5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(qp_http_request_duration_seconds_bucket[5m]))
+          )
+
+      # AI schema_fail 비율 (10m 창)
+      - record: qp:ai_schema_fail_ratio:10m
+        expr: |
+          sum(rate(qp_ai_calls_total{outcome="schema_fail"}[10m]))
+          /
+          sum(rate(qp_ai_calls_total[10m]))
+
+      # 30일 가용성 (Thanos 장기 저장소 필요)
+      - record: qp:availability:30d
+        expr: |
+          1 -
+          sum(increase(qp_http_requests_total{status=~"5.."}[30d]))
+          /
+          sum(increase(qp_http_requests_total[30d]))
+
+  - name: quantpilot.alerts
+    interval: 30s
+    rules:
+      - alert: QuantPilotHigh5xxRate
+        expr: qp:http_5xx_ratio:5m * 100 > 5
+        for: 5m
+        labels: {severity: critical, service: quantpilot-proxy, source: thanos-ruler}
+        annotations:
+          summary: "5xx > 5% for 5m (Thanos-evaluated)"
+          description: "현재값: {{ $value | printf \"%.2f\" }}%"
+
+      - alert: QuantPilotLatencyP95High
+        expr: qp:http_latency_p95:5m > 2
+        for: 5m
+        labels: {severity: warning, service: quantpilot-proxy, source: thanos-ruler}
+        annotations:
+          summary: "p95 latency > 2s for 5m"
+          description: "현재값: {{ $value | printf \"%.2fs\" }}"
+
+      - alert: QuantPilotAISchemaFailBurst
+        expr: qp:ai_schema_fail_ratio:10m > 0.15
+        for: 1m
+        labels: {severity: critical, service: quantpilot-proxy, component: ai, source: thanos-ruler}
+        annotations:
+          summary: "AI schema_fail ratio > 15% (10m)"
+
+      - alert: QuantPilotAvailabilitySLOBreach
+        expr: qp:availability:30d * 100 < 99.9
+        for: 15m
+        labels: {severity: critical, service: quantpilot-proxy, source: thanos-ruler}
+        annotations:
+          summary: "30d availability < 99.9% SLO"
+          description: "현재값: {{ $value | printf \"%.4f\" }}"

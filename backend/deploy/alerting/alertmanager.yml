@@ -1,0 +1,77 @@
+# Alertmanager routing (2026-08-15) — Slack + Email 이중 채널
+
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: "smtp.internal:587"
+  smtp_from: "alerts@quantpilot.io"
+  smtp_auth_username: "alerts@quantpilot.io"
+  smtp_auth_password_file: "/run/secrets/smtp_password"
+  smtp_require_tls: true
+
+templates: ["/etc/alertmanager/templates/*.tmpl"]
+
+route:
+  receiver: default
+  group_by: [alertname, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # critical → Slack + Email 즉시 알림
+    - matchers: [severity="critical"]
+      receiver: slack-critical
+      continue: true
+    - matchers: [severity="critical"]
+      receiver: email-oncall
+    # warning → Slack만 (조용한 채널)
+    - matchers: [severity="warning"]
+      receiver: slack-warning
+    # AI 관련은 별도 채널
+    - matchers: [component="ai"]
+      receiver: slack-ai
+      continue: true
+
+receivers:
+  - name: default
+    slack_configs:
+      - api_url_file: /run/secrets/slack_webhook_default
+        channel: "#quantpilot-alerts"
+        send_resolved: true
+
+  - name: slack-critical
+    slack_configs:
+      - api_url_file: /run/secrets/slack_webhook_critical
+        channel: "#quantpilot-critical"
+        send_resolved: true
+        title: '[CRITICAL] {{ .CommonAnnotations.summary }}'
+        text: |
+          *경보*: {{ .CommonAnnotations.summary }}
+          *설명*: {{ .CommonAnnotations.description }}
+          *대시보드*: {{ .CommonAnnotations.dashboard }}
+          *발생*: {{ .Alerts.Firing | len }}건 / *해제*: {{ .Alerts.Resolved | len }}건
+
+  - name: slack-warning
+    slack_configs:
+      - api_url_file: /run/secrets/slack_webhook_default
+        channel: "#quantpilot-alerts"
+        send_resolved: true
+        title: '[WARNING] {{ .CommonAnnotations.summary }}'
+        text: '{{ .CommonAnnotations.description }}'
+
+  - name: slack-ai
+    slack_configs:
+      - api_url_file: /run/secrets/slack_webhook_ai
+        channel: "#quantpilot-ai"
+        send_resolved: true
+
+  - name: email-oncall
+    email_configs:
+      - to: "oncall@quantpilot.io"
+        headers:
+          Subject: '[QuantPilot][{{ .Status | toUpper }}] {{ .CommonAnnotations.summary }}'
+
+inhibit_rules:
+  # critical이 울릴 때는 같은 지표의 warning은 억제
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [alertname, service]

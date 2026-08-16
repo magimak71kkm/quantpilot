@@ -1,0 +1,73 @@
+version: "3.9"
+
+# QuantPilot backend dev stack — proxy + postgres + redis + vault-dev
+# Bring up with: docker compose -f deploy/docker-compose.yml up -d
+services:
+  proxy:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: quantpilot/proxy:0.1.0
+    container_name: qp-proxy
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_started
+    env_file: .env
+    environment:
+      QP_ENV: dev
+      QP_DATABASE_URL: postgresql+psycopg2://quantpilot:quantpilot@postgres:5432/quantpilot
+      QP_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health',timeout=2).status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: qp-postgres
+    environment:
+      POSTGRES_USER: quantpilot
+      POSTGRES_PASSWORD: quantpilot
+      POSTGRES_DB: quantpilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../scripts/init_db.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantpilot -d quantpilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: qp-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: qp-vault
+    cap_add: [IPC_LOCK]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: qp-dev-root
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    command: ["server", "-dev"]
+
+volumes:
+  pgdata:

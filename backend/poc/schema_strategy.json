@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["name","universe","entry","exit","position","schedule","summary_ko","warnings"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "universe": {
+      "type": "object",
+      "required": ["market","cap_tier"],
+      "properties": {
+        "market":   {"enum": ["KOSPI","KOSDAQ","US_NYSE","US_NASDAQ"]},
+        "cap_tier": {"enum": ["large","mid","small","any"]}
+      }
+    },
+    "entry": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["field","op","value"],
+        "properties": {
+          "field": {"enum": ["RSI","MACD","MA_cross","PER","PBR","changePct","changePct_5d","changePct_20d","volume_spike","price","marketCap"]},
+          "op":    {"enum": ["==","<","<=",">",">=","cross_up","cross_down"]},
+          "value": {}
+        }
+      }
+    },
+    "exit": {
+      "type": "object",
+      "required": ["take_profit_pct","stop_loss_pct","trailing_pct","max_hold_days"],
+      "properties": {
+        "take_profit_pct": {"type": "number", "minimum": 0,   "maximum": 100},
+        "stop_loss_pct":   {"type": "number", "minimum": -30, "maximum": 0},
+        "trailing_pct":    {"type": "number", "minimum": 0,   "maximum": 100},
+        "max_hold_days":   {"type": "integer","minimum": 1,   "maximum": 365}
+      }
+    },
+    "position": {
+      "type": "object",
+      "required": ["sizing","max_positions","per_trade_pct"],
+      "properties": {
+        "sizing":         {"enum": ["equal","volatility","kelly_capped"]},
+        "max_positions":  {"type": "integer","minimum": 1,"maximum": 50},
+        "per_trade_pct":  {"type": "number", "minimum": 1,"maximum": 100}
+      }
+    },
+    "schedule": {"enum": ["intraday","hourly","daily_close","weekly"]},
+    "summary_ko": {"type": "string","minLength": 5},
+    "warnings":   {"type": "array","items": {"type": "string"}, "minItems": 1},
+    "confidence": {"type": "number","minimum": 0,"maximum": 1}
+  }
+}

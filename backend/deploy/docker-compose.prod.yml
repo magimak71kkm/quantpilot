@@ -1,0 +1,74 @@
+version: "3.9"
+
+# QuantPilot production overlay.
+#
+# 사용법:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# 개발 오버라이드와의 차이:
+#   - Vault dev 모드 제거 → Vault Agent 사이드카를 통해 시크릿을 파일로 주입
+#   - .env 대신 Vault 렌더 결과(/vault/secrets/proxy.env)를 uvicorn 앞의 entrypoint에서 로드
+#   - Postgres/Redis 볼륨 명시 + restart 정책 강화
+#   - Vault dev 서비스 사용 금지: 이 오버레이 실행 전에 외부 Vault 클러스터(vault.internal:8200)가 준비되어야 함
+services:
+  proxy:
+    image: ghcr.io/${GHCR_ORG:-quantpilot}/proxy:${QP_VERSION:-latest}
+    # 운영 오버레이에서는 GHCR 이미지를 사용하며 로컬 build 블록은 사용하지 않는다.
+    # Docker Compose는 image 지정이 있으면 base의 build 블록을 무시하도록 이 오버레이에서 명시적으로 사용하지 않는다.
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault-agent:
+        condition: service_started
+    env_file: []            # .env 로드 금지 (base의 env_file을 빈 배열로 덮어씀)
+    environment:
+      QP_ENV: prod
+      # 나머지 QP_* 는 vault-agent 사이드카가 /vault/secrets/proxy.env 로 렌더한다
+    volumes:
+      - vault-secrets:/vault/secrets:ro
+    command: >
+      /bin/sh -c "
+        set -a; . /vault/secrets/proxy.env; set +a;
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8080
+      "
+    ports:
+      - "8080:8080"
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+
+  vault-agent:
+    image: hashicorp/vault:1.17
+    container_name: qp-vault-agent
+    restart: unless-stopped
+    depends_on: []
+    environment:
+      VAULT_ADDR: ${VAULT_ADDR:-https://vault.internal:8200}
+    volumes:
+      - ./vault-agent/agent.hcl:/etc/vault/agent.hcl:ro
+      - ./vault-agent/proxy.env.tpl:/etc/vault/templates/proxy.env.tpl:ro
+      - vault-secrets:/vault/secrets
+      - vault-role:/vault/role                       # AppRole role_id/secret_id 프로비저닝 볼륨
+    entrypoint: ["vault", "agent", "-config=/etc/vault/agent.hcl"]
+
+  vault:
+    profiles: [dev-only]           # 운영 오버레이에서는 실행되지 않음
+
+  postgres:
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+
+  redis:
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+
+volumes:
+  vault-secrets:
+  vault-role:

@@ -1,0 +1,72 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}-slo
+  labels:
+    app.kubernetes.io/name: quantpilot
+    {{- with .Values.monitoring.releaseLabel }}
+    release: {{ . }}
+    {{- end }}
+spec:
+  groups:
+    - name: quantpilot.slos
+      interval: 30s
+      rules:
+        - alert: QuantPilotHigh5xxRate
+          expr: |
+            100 * sum(rate(qp_http_requests_total{status=~"5.."}[5m]))
+                / sum(rate(qp_http_requests_total[5m])) > 5
+          for: 5m
+          labels: {severity: critical, service: quantpilot-proxy}
+          annotations:
+            summary: "5xx > 5% for 5m"
+            description: "현재값: {{ "{{" }} $value | printf \"%.2f\" {{ "}}" }}%. 런북: https://runbooks.quantpilot.io/5xx-spike"
+        - alert: QuantPilotElevated5xxRate
+          expr: |
+            100 * sum(rate(qp_http_requests_total{status=~"5.."}[5m]))
+                / sum(rate(qp_http_requests_total[5m])) > 1
+          for: 10m
+          labels: {severity: warning, service: quantpilot-proxy}
+          annotations:
+            summary: "5xx > 1% for 10m"
+        - alert: QuantPilotLatencyP95High
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(qp_http_request_duration_seconds_bucket[5m]))
+            ) > 2
+          for: 5m
+          labels: {severity: warning, service: quantpilot-proxy}
+          annotations:
+            summary: "p95 latency > 2s for 5m"
+        - alert: QuantPilotLatencyP95Severe
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(qp_http_request_duration_seconds_bucket[5m]))
+            ) > 5
+          for: 3m
+          labels: {severity: critical, service: quantpilot-proxy}
+          annotations:
+            summary: "p95 latency > 5s for 3m"
+        - alert: QuantPilotAISchemaFailSpike
+          expr: sum(increase(qp_ai_calls_total{outcome="schema_fail"}[10m])) > 20
+          for: 1m
+          labels: {severity: warning, service: quantpilot-proxy, component: ai}
+          annotations:
+            summary: "AI schema_fail > 20 in 10m"
+        - alert: QuantPilotAISchemaFailBurst
+          expr: sum(increase(qp_ai_calls_total{outcome="schema_fail"}[5m])) > 50
+          for: 30s
+          labels: {severity: critical, service: quantpilot-proxy, component: ai}
+          annotations:
+            summary: "AI schema_fail burst > 50 in 5m"
+    - name: quantpilot.saturation
+      interval: 30s
+      rules:
+        - alert: QuantPilotInFlightHigh
+          expr: qp_http_in_flight > 100
+          for: 2m
+          labels: {severity: warning, service: quantpilot-proxy}
+          annotations:
+            summary: "In-flight > 100 for 2m"
+{{- end }}

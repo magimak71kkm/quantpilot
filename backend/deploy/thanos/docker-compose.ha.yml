@@ -1,0 +1,68 @@
+# Alertmanager HA (2대) + Thanos Ruler 확장 오버레이
+#
+# 실행:
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.observability.yml \
+#     -f thanos/docker-compose.thanos.yml \
+#     -f thanos/docker-compose.ha.yml up -d
+#
+# Alertmanager는 2대(am1, am2)가 gossip으로 상태 동기화하며 Ruler는 둘 모두에 전송한다.
+version: "3.9"
+
+services:
+  # ── Alertmanager HA 쌍 ───────────────────────────────────────────────────
+  alertmanager:
+    # 기존 서비스 이름을 재사용하되 HA cluster로 재기동
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--cluster.listen-address=0.0.0.0:9094"
+      - "--cluster.advertise-address=alertmanager:9094"
+      - "--cluster.peer=alertmanager-2:9094"
+      - "--web.listen-address=0.0.0.0:9093"
+
+  alertmanager-2:
+    image: prom/alertmanager:v0.27.0
+    container_name: qp-alertmanager-2
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--cluster.listen-address=0.0.0.0:9094"
+      - "--cluster.advertise-address=alertmanager-2:9094"
+      - "--cluster.peer=alertmanager:9094"
+      - "--web.listen-address=0.0.0.0:9093"
+    volumes:
+      - ../alerting/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - am2-data:/alertmanager
+    ports: ["9193:9093"]
+
+  # ── Thanos Ruler (서버 측 recording + alerting rule 평가) ────────────────
+  thanos-ruler:
+    image: quay.io/thanos/thanos:v0.36.1
+    container_name: qp-thanos-ruler
+    depends_on: [thanos-query, alertmanager, alertmanager-2]
+    environment:
+      THANOS_S3_ACCESS_KEY: minioadmin
+      THANOS_S3_SECRET_KEY: minioadmin
+    command:
+      - "rule"
+      - "--data-dir=/data"
+      - "--rule-file=/etc/thanos/rules/*.yml"
+      - "--query=thanos-query:10902"
+      - "--alertmanagers.url=http://alertmanager:9093"
+      - "--alertmanagers.url=http://alertmanager-2:9093"
+      - "--label=cluster=\"quantpilot-prod\""
+      - "--label=replica=\"0\""
+      - "--objstore.config-file=/etc/thanos/objstore.yml"
+      - "--http-address=0.0.0.0:10902"
+      - "--grpc-address=0.0.0.0:10901"
+    volumes:
+      - ./thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+      - ./thanos/rules:/etc/thanos/rules:ro
+      - thanos-ruler-data:/data
+    ports: ["10903:10902"]
+
+volumes:
+  am2-data:
+  thanos-ruler-data:

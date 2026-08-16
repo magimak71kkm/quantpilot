@@ -1,0 +1,12 @@
+# Thanos 오브젝트 스토리지 설정 예시 (S3 호환).
+# 실제 자격증명은 Vault Agent Injector 또는 Docker Secrets로 주입한다.
+type: S3
+config:
+  bucket: qp-tsdb
+  endpoint: minio.internal:9000
+  access_key: ${THANOS_S3_ACCESS_KEY}
+  secret_key: ${THANOS_S3_SECRET_KEY}
+  insecure: true
+  http_config:
+    idle_conn_timeout: 90s
+    response_header_timeout: 2m

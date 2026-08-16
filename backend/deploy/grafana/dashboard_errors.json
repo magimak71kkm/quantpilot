@@ -1,0 +1,29 @@
+{
+  "title": "QuantPilot · Errors",
+  "uid": "qp-errors",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {"type": "timeseries", "title": "5xx error rate (%)",
+     "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0},
+     "targets": [
+       {"expr": "100 * (sum(rate(qp_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(qp_http_requests_total[5m])))",
+        "legendFormat": "5xx %", "refId": "A"}
+     ],
+     "fieldConfig": {"defaults": {"unit": "percent"}},
+     "thresholds": {"mode": "absolute", "steps": [
+       {"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}
+     ]}},
+    {"type": "timeseries", "title": "4xx / 5xx per endpoint",
+     "gridPos": {"h": 9, "w": 24, "x": 0, "y": 9},
+     "targets": [
+       {"expr": "sum by (path_template, status) (rate(qp_http_requests_total{status=~\"[45]..\"}[5m]))",
+        "legendFormat": "{{path_template}} {{status}}", "refId": "A"}
+     ]},
+    {"type": "stat", "title": "AI schema_fail count (24h)",
+     "gridPos": {"h": 5, "w": 6, "x": 0, "y": 18},
+     "targets": [{"expr": "sum(increase(qp_ai_calls_total{outcome=\"schema_fail\"}[24h]))", "refId": "A"}]}
+  ]
+}

@@ -1,0 +1,23 @@
+# Alertmanager 스모크 스택 (mock Slack 포함)
+#
+# 실행:
+#   cd deploy
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.observability.yml \
+#     -f ../scripts/alert_smoke/docker-compose.smoke.yml up -d
+#
+#   # 알림 트리거
+#   bash ../scripts/alert_smoke/trigger_alerts.sh
+#   # 수신 확인
+#   docker exec qp-mock-slack sh -c 'cat /tmp/mock_slack.jsonl' | tail
+version: "3.9"
+services:
+  mock-slack:
+    image: python:3.13-slim
+    container_name: qp-mock-slack
+    working_dir: /app
+    volumes:
+      - ../scripts/alert_smoke:/app:ro
+    command: ["python", "mock_slack.py", "--port", "5001", "--out", "/tmp/mock_slack.jsonl"]
+    ports: ["5001:5001"]

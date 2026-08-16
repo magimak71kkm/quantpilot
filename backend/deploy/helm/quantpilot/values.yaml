@@ -1,0 +1,59 @@
+# QuantPilot Helm values
+
+image:
+  repository: ghcr.io/quantpilot/proxy
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  host: api.quantpilot.io
+  tls:
+    enabled: true
+    secretName: quantpilot-tls
+
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits:   {cpu: 500m, memory: 512Mi}
+
+env:
+  QP_ENV: prod
+  QP_FRONTEND_ORIGIN: https://app.quantpilot.io
+  QP_GOOGLE_REDIRECT_URI: https://api.quantpilot.io/auth/google/callback
+  QP_GEMINI_MODEL: gemini-1.5-flash
+
+# Vault Agent Injector (https://developer.hashicorp.com/vault/docs/platform/k8s/injector)
+vault:
+  enabled: true
+  role: quantpilot-proxy
+  address: https://vault.internal:8200
+  # 시크릿 경로 → 렌더 파일 매핑
+  secrets:
+    core:   secret/data/quantpilot/core
+    google: secret/data/quantpilot/google
+    gemini: secret/data/quantpilot/gemini
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+# Prometheus Operator CRDs (kube-prometheus-stack와 함께 사용)
+monitoring:
+  enabled: true
+  releaseLabel: kube-prometheus-stack   # Prometheus 인스턴스의 selector 라벨
+  interval: 15s
+  scrapeTimeout: 10s
+
+# HPA 대신 사용할 때
+nodeSelector: {}
+tolerations: []
+affinity: {}

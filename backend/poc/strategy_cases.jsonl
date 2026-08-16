@@ -1,0 +1,4 @@
+{"input":"삼성전자 같은 대형주에서 RSI가 30 아래로 떨어졌을 때 사고, 3% 오르면 팔고, 2% 떨어지면 손절. 최대 10일까지만 보유.","expect_keys":["entry","exit","summary_ko"]}
+{"input":"5일 이동평균이 20일선 위로 돌파할 때 매수, 손절 -3%, 익절 5%","expect_keys":["entry","exit"]}
+{"input":"거래량 급증 종목 매수, 다음날 종가 매도","expect_keys":["entry","exit"]}
+{"input":"코스닥 소형주 RSI 25 미만 매수, 트레일링 2% 익절 관리","expect_keys":["entry","exit"]}
